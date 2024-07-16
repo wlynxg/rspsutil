@@ -1,9 +1,11 @@
+use std::{io, mem};
 use std::cmp::min;
 use std::error::Error;
-use std::mem;
 
 use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessorPerformanceInformation};
+use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
+use windows_sys::Win32::System::Threading::GetSystemTimes;
 
 use crate::common::binary::{little_endian_u32, little_endian_u64};
 use crate::cpu::TimesStat;
@@ -12,7 +14,7 @@ const DEFAULT_CPU_NUM: usize = 1024;
 const CLOCKS_PER_SEC: f64 = 10000000.0;
 
 #[derive(Debug)]
-pub struct Win32SystemProcessorPerformanceInformation {
+struct Win32SystemProcessorPerformanceInformation {
     idle_time: i64,
     kernel_time: i64,
     user_time: i64,
@@ -21,6 +23,29 @@ pub struct Win32SystemProcessorPerformanceInformation {
     interrupt_count: u32,
 }
 
+
+pub fn total_times() -> Result<TimesStat, Box<dyn Error>> {
+    let mut lpidletime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let mut lpkerneltime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let mut lpusertime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+
+    let ret = unsafe {
+        GetSystemTimes(&mut lpidletime, &mut lpkerneltime, &mut lpusertime)
+    };
+
+    if ret == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+
+    let lot = 0.0000001;
+    let hit = 429.4967296;
+    let idle = (hit * lpidletime.dwHighDateTime as f64) + (lot * lpidletime.dwLowDateTime as f64);
+    let user = (hit * lpusertime.dwHighDateTime as f64) + (lot * lpusertime.dwLowDateTime as f64);
+    let kernel = (hit * lpkerneltime.dwHighDateTime as f64) + (lot * lpkerneltime.dwLowDateTime as f64);
+    let system = kernel - idle;
+
+    Ok(TimesStat { cpu: "total".to_string(), user, system, idle, ..Default::default() })
+}
 
 pub fn cpu_num() -> Option<usize> {
     unsafe {
