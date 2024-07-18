@@ -8,12 +8,12 @@ use windows::Win32::System::Wmi::{IWbemLocator, WBEM_FLAG_FORWARD_ONLY, WBEM_FLA
 use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessorPerformanceInformation};
 use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
-use windows_sys::Win32::System::Threading::GetSystemTimes;
+use windows_sys::Win32::System::Threading::{ALL_PROCESSOR_GROUPS, GetActiveProcessorCount, GetSystemTimes};
 
 use crate::common::binary::{little_endian_u32, little_endian_u64};
 use crate::cpu::{InfoStat, TimesStat};
 
-const DEFAULT_CPU_NUM: usize = 1024;
+const DEFAULT_CPU_NUM: u32 = 1024;
 const CLOCKS_PER_SEC: f64 = 10000000.0;
 
 #[derive(Debug)]
@@ -127,7 +127,7 @@ pub fn info() -> Result<Vec<InfoStat>, Box<dyn Error>> {
                 row.Get(w!("ProcessorID"), 0, &mut processor_id, None, None)?;
                 row.Get(w!("Stepping"), 0, &mut stepping, None, None)?;
                 row.Get(w!("MaxClockSpeed"), 0, &mut max_clock_speed, None, None)?;
-                
+
                 ret.push(InfoStat {
                     cpu,
                     vendor_id: manufacturer.to_string(),
@@ -149,10 +149,71 @@ pub fn info() -> Result<Vec<InfoStat>, Box<dyn Error>> {
     Ok(ret)
 }
 
+pub fn logical_counts() -> Option<u32> {
+    unsafe {
+        let ret = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        if ret != 0 {
+            return Some(ret);
+        }
+
+        let mut si: SYSTEM_INFO = mem::zeroed();
+        GetSystemInfo(&mut si);
+        Some(si.dwNumberOfProcessors)
+    }
+}
+
+pub fn physical_counts() -> Result<u32, Box<dyn Error>> {
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+
+        CoInitializeSecurity(
+            None,
+            -1,
+            None,
+            None,
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            None,
+            EOAC_NONE,
+            None,
+        )?;
+
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+
+        let server =
+            locator.ConnectServer(&BSTR::from("root\\cimv2"), None, None, None, 0, None, None)?;
+
+        let query = server.ExecQuery(
+            &BSTR::from("WQL"),
+            &BSTR::from("select NumberOfCores from Win32_Processor"),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            None,
+        )?;
+
+
+        let mut cpu = 0;
+        loop {
+            let mut row = vec![None];
+            let mut returned = 0;
+            query.Next(WBEM_INFINITE, &mut row, &mut returned).ok()?;
+
+            if let Some(row) = &row[0] {
+                let mut number_of_cores = VARIANT::default();
+
+                row.Get(w!("NumberOfCores"), 0, &mut number_of_cores, None, None)?;
+
+                cpu += number_of_cores.to_string().parse::<u32>().unwrap();
+            } else {
+                return Ok(cpu);
+            }
+        }
+    }
+}
+
 fn performance_info() -> Result<Vec<Win32SystemProcessorPerformanceInformation>, Box<dyn Error>> {
-    let cpu = cpu_num().unwrap_or(DEFAULT_CPU_NUM);
+    let cpu = logical_counts().unwrap_or(DEFAULT_CPU_NUM);
     let win32system_processor_performance_information_size = mem::size_of::<Win32SystemProcessorPerformanceInformation>();
-    let length: u32 = (win32system_processor_performance_information_size * cpu) as u32;
+    let length: u32 = win32system_processor_performance_information_size as u32 * cpu;
     let mut buffer: Vec<u8> = vec![0u8; length as usize];
     let mut ret = 0;
     unsafe {
@@ -184,10 +245,3 @@ fn performance_info() -> Result<Vec<Win32SystemProcessorPerformanceInformation>,
     Ok(result)
 }
 
-fn cpu_num() -> Option<usize> {
-    unsafe {
-        let mut si: SYSTEM_INFO = mem::zeroed();
-        GetSystemInfo(&mut si);
-        Some(si.dwNumberOfProcessors as usize)
-    }
-}
