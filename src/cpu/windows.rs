@@ -2,13 +2,16 @@ use std::{io, mem};
 use std::cmp::min;
 use std::error::Error;
 
+use windows::core::{BSTR, VARIANT, w};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, COINIT_MULTITHREADED, CoInitializeEx, CoInitializeSecurity, EOAC_NONE, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE};
+use windows::Win32::System::Wmi::{IWbemLocator, WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE, WbemLocator};
 use windows_sys::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessorPerformanceInformation};
 use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
 use windows_sys::Win32::System::Threading::GetSystemTimes;
 
 use crate::common::binary::{little_endian_u32, little_endian_u64};
-use crate::cpu::TimesStat;
+use crate::cpu::{InfoStat, TimesStat};
 
 const DEFAULT_CPU_NUM: usize = 1024;
 const CLOCKS_PER_SEC: f64 = 10000000.0;
@@ -47,14 +50,6 @@ pub fn total_times() -> Result<TimesStat, Box<dyn Error>> {
     Ok(TimesStat { cpu: "total".to_string(), user, system, idle, ..Default::default() })
 }
 
-pub fn cpu_num() -> Option<usize> {
-    unsafe {
-        let mut si: SYSTEM_INFO = mem::zeroed();
-        GetSystemInfo(&mut si);
-        Some(si.dwNumberOfProcessors as usize)
-    }
-}
-
 pub fn per_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
     let performances = performance_info()?;
     let mut result = Vec::with_capacity(performances.len());
@@ -71,6 +66,87 @@ pub fn per_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
     }
 
     Ok(result)
+}
+
+pub fn info() -> Result<Vec<InfoStat>, Box<dyn Error>> {
+    let mut ret = Vec::new();
+
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+
+        CoInitializeSecurity(
+            None,
+            -1,
+            None,
+            None,
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            None,
+            EOAC_NONE,
+            None,
+        )?;
+
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+
+        let server =
+            locator.ConnectServer(&BSTR::from("root\\cimv2"), None, None, None, 0, None, None)?;
+
+        let query = server.ExecQuery(
+            &BSTR::from("WQL"),
+            &BSTR::from("select Family,Manufacturer,Name,NumberOfLogicalProcessors,NumberOfCores,ProcessorID,Stepping,MaxClockSpeed from Win32_Processor"),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            None,
+        )?;
+
+
+        let mut cpu = 0;
+        loop {
+            let mut row = vec![None];
+            let mut returned = 0;
+            query.Next(WBEM_INFINITE, &mut row, &mut returned).ok()?;
+
+            if returned <= 0 {
+                break;
+            }
+
+            if let Some(row) = &row[0] {
+                let mut family = VARIANT::default();
+                let mut manufacturer = VARIANT::default();
+                let mut name = VARIANT::default();
+                let mut number_of_logical_processors = VARIANT::default();
+                let mut number_of_cores = VARIANT::default();
+                let mut processor_id = VARIANT::default();
+                let mut stepping = VARIANT::default();
+                let mut max_clock_speed = VARIANT::default();
+
+                row.Get(w!("Family"), 0, &mut family, None, None)?;
+                row.Get(w!("Manufacturer"), 0, &mut manufacturer, None, None)?;
+                row.Get(w!("Name"), 0, &mut name, None, None)?;
+                row.Get(w!("NumberOfLogicalProcessors"), 0, &mut number_of_logical_processors, None, None)?;
+                row.Get(w!("NumberOfCores"), 0, &mut number_of_cores, None, None)?;
+                row.Get(w!("ProcessorID"), 0, &mut processor_id, None, None)?;
+                row.Get(w!("Stepping"), 0, &mut stepping, None, None)?;
+                row.Get(w!("MaxClockSpeed"), 0, &mut max_clock_speed, None, None)?;
+                
+                ret.push(InfoStat {
+                    cpu,
+                    vendor_id: manufacturer.to_string(),
+                    family: family.to_string(),
+                    physical_id: processor_id.to_string(),
+                    cores: number_of_logical_processors.to_string().parse::<i32>()?,
+                    model_name: name.to_string(),
+                    mhz: max_clock_speed.to_string().parse::<f64>()?,
+                    ..Default::default()
+                });
+
+                cpu += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    Ok(ret)
 }
 
 fn performance_info() -> Result<Vec<Win32SystemProcessorPerformanceInformation>, Box<dyn Error>> {
@@ -108,3 +184,10 @@ fn performance_info() -> Result<Vec<Win32SystemProcessorPerformanceInformation>,
     Ok(result)
 }
 
+fn cpu_num() -> Option<usize> {
+    unsafe {
+        let mut si: SYSTEM_INFO = mem::zeroed();
+        GetSystemInfo(&mut si);
+        Some(si.dwNumberOfProcessors as usize)
+    }
+}

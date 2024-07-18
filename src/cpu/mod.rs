@@ -18,3 +18,21 @@ pub struct TimesStat {
     pub guest: f64,
     pub guest_nice: f64,
 }
+
+
+#[derive(Default, Debug)]
+pub struct InfoStat {
+    pub cpu: i32,
+    pub vendor_id: String,
+    pub family: String,
+    pub model: String,
+    pub stepping: i32,
+    pub physical_id: String,
+    pub core_id: String,
+    pub cores: i32,
+    pub model_name: String,
+    pub mhz: f64,
+    pub cache_size: i32,
+    pub flags: Vec<String>,
+    pub microcode: String,
+}
