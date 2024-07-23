@@ -1,8 +1,10 @@
-#[cfg(windows)]
-pub use windows::*;
+use std::error::Error;
+
+use crate::cpu::windows::{all_infos, logical_counts, per_cpu_times, physical_counts, total_times};
 
 #[cfg(windows)]
 mod windows;
+
 
 #[derive(Default, Debug)]
 pub struct TimesStat {
@@ -19,7 +21,6 @@ pub struct TimesStat {
     pub guest_nice: f64,
 }
 
-
 #[derive(Default, Debug)]
 pub struct InfoStat {
     pub cpu: i32,
@@ -35,4 +36,25 @@ pub struct InfoStat {
     pub cache_size: i32,
     pub flags: Vec<String>,
     pub microcode: String,
+}
+
+
+pub fn times(percpu: bool) -> Result<Vec<TimesStat>, Box<dyn Error>> {
+    return if percpu {
+        per_cpu_times()
+    } else {
+        total_times()
+    };
+}
+
+pub fn infos() -> Result<Vec<InfoStat>, Box<dyn Error>> {
+    all_infos()
+}
+
+pub fn counts(logical: bool) -> Result<u32, Box<dyn Error>> {
+    return if logical {
+        logical_counts()
+    } else {
+        physical_counts()
+    };
 }

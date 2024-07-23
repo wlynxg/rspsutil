@@ -27,7 +27,7 @@ struct Win32SystemProcessorPerformanceInformation {
 }
 
 
-pub fn total_times() -> Result<TimesStat, Box<dyn Error>> {
+pub fn total_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
     let mut lpidletime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let mut lpkerneltime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let mut lpusertime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
@@ -47,7 +47,7 @@ pub fn total_times() -> Result<TimesStat, Box<dyn Error>> {
     let kernel = (hit * lpkerneltime.dwHighDateTime as f64) + (lot * lpkerneltime.dwLowDateTime as f64);
     let system = kernel - idle;
 
-    Ok(TimesStat { cpu: "total".to_string(), user, system, idle, ..Default::default() })
+    Ok(vec![TimesStat { cpu: "total".to_string(), user, system, idle, ..Default::default() }])
 }
 
 pub fn per_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
@@ -68,7 +68,7 @@ pub fn per_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
     Ok(result)
 }
 
-pub fn info() -> Result<Vec<InfoStat>, Box<dyn Error>> {
+pub fn all_infos() -> Result<Vec<InfoStat>, Box<dyn Error>> {
     let mut ret = Vec::new();
 
     unsafe {
@@ -149,16 +149,16 @@ pub fn info() -> Result<Vec<InfoStat>, Box<dyn Error>> {
     Ok(ret)
 }
 
-pub fn logical_counts() -> Option<u32> {
+pub fn logical_counts() -> Result<u32, Box<dyn Error>> {
     unsafe {
         let ret = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
         if ret != 0 {
-            return Some(ret);
+            return Ok(ret);
         }
 
         let mut si: SYSTEM_INFO = mem::zeroed();
         GetSystemInfo(&mut si);
-        Some(si.dwNumberOfProcessors)
+        Ok(si.dwNumberOfProcessors)
     }
 }
 
@@ -219,7 +219,7 @@ fn performance_info() -> Result<Vec<Win32SystemProcessorPerformanceInformation>,
     unsafe {
         let status = NtQuerySystemInformation(SystemProcessorPerformanceInformation, buffer.as_mut_ptr() as _, length, &mut ret);
         if status != 0 {
-            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("call to NtQuerySystemInformation returned {}.", status))));
+            return Err(Box::new(io::Error::new(io::ErrorKind::Other, format!("call to NtQuerySystemInformation returned {}.", status))));
         }
     }
 
