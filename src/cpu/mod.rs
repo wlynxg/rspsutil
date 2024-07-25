@@ -1,18 +1,21 @@
 use std::error::Error;
 
-use crate::cpu::windows::{all_infos, logical_counts, per_cpu_times, physical_counts, total_times};
+use crate::cpu::windows::{all_infos, logical_counts, per_cpu_times, physical_counts, total_cpu_times};
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 mod windows;
+
+#[cfg(target_os = "linux")]
+mod linux;
 
 
 #[derive(Default, Debug)]
 pub struct TimesStat {
     pub cpu: String,
     pub user: f64,
+    pub nice: f64,
     pub system: f64,
     pub idle: f64,
-    pub nice: f64,
     pub io_wait: f64,
     pub irq: f64,
     pub soft_irq: f64,
@@ -43,7 +46,7 @@ pub fn times(percpu: bool) -> Result<Vec<TimesStat>, Box<dyn Error>> {
     return if percpu {
         per_cpu_times()
     } else {
-        total_times()
+        total_cpu_times()
     };
 }
 

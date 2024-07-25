@@ -27,7 +27,7 @@ struct Win32SystemProcessorPerformanceInformation {
 }
 
 
-pub fn total_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
+pub fn total_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
     let mut lpidletime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let mut lpkerneltime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let mut lpusertime = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
