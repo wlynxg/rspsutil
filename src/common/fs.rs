@@ -24,6 +24,13 @@ pub fn read_lines_offset_n(filename: &str, offset: usize, n: isize) -> io::Resul
         let line = line?;
         ret.push(line);
     };
-    
+
     Ok(ret)
+}
+
+/// read_lines reads contents from a file and splits them by new lines.
+pub fn read_lines(filename: &str) -> io::Result<Vec<String>> {
+    let file = File::open(filename)?;
+    let lines = BufReader::new(file).lines().map(|x| { x.unwrap_or("".to_string()) }).collect();
+    Ok(lines)
 }
