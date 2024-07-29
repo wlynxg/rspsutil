@@ -1,9 +1,9 @@
 use std::error::Error;
 
 #[cfg(target_os = "linux")]
-use crate::cpu::linux::{all_infos, per_cpu_times, total_cpu_times};
+use crate::cpu::linux::*;
 #[cfg(target_os = "windows")]
-use crate::cpu::windows::{per_cpu_times, total_cpu_times};
+use crate::cpu::windows::*;
 
 #[cfg(target_os = "windows")]
 mod windows;
@@ -56,11 +56,11 @@ pub fn times(percpu: bool) -> Result<Vec<TimesStat>, Box<dyn Error>> {
 pub fn infos() -> Result<Vec<InfoStat>, Box<dyn Error>> {
     all_infos()
 }
-//
-// pub fn counts(logical: bool) -> Result<u32, Box<dyn Error>> {
-//     return if logical {
-//         logical_counts()
-//     } else {
-//         physical_counts()
-//     };
-// }
+
+pub fn counts(logical: bool) -> Result<u32, Box<dyn Error>> {
+    return if logical {
+        logical_counts()
+    } else {
+        physical_counts()
+    };
+}

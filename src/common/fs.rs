@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 /// read_lines_offset_n reads contents from file and splits them by new line.
 /// The offset tells at which line number to start.
@@ -29,7 +30,7 @@ pub fn read_lines_offset_n(filename: &str, offset: usize, n: isize) -> io::Resul
 }
 
 /// read_lines reads contents from a file and splits them by new lines.
-pub fn read_lines(filename: &str) -> io::Result<Vec<String>> {
+pub fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<Vec<String>> {
     let file = File::open(filename)?;
     let lines = BufReader::new(file).lines().map(|x| { x.unwrap_or("".to_string()) }).collect();
     Ok(lines)

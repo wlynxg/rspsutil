@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use crate::common::fs as cfs;
@@ -6,6 +7,7 @@ use crate::cpu::{InfoStat, TimesStat};
 const PROC_STAT: &str = "/proc/stat";
 const PROC_CPUINFO: &str = "/proc/cpuinfo";
 const SYS_CPU: &str = "/sys/devices/system/cpu";
+const SYS: &str = "/sys";
 const CLOCKS_PER_SEC: f64 = 100.0;
 
 pub fn total_cpu_times() -> Result<Vec<TimesStat>, Box<dyn Error>> {
@@ -220,6 +222,101 @@ pub fn all_infos() -> Result<Vec<InfoStat>, Box<dyn Error>> {
     Ok(ret)
 }
 
+pub fn logical_counts() -> Result<u32, Box<dyn Error>> {
+    let mut ret = 0;
+
+    if let Ok(lines) = cfs::read_lines(PROC_CPUINFO) {
+        for line in lines {
+            let line = line.to_lowercase();
+            if line.starts_with("processor") {
+                if let Some(colon_index) = line.find(':') {
+                    let value = line[colon_index + 1..].trim();
+                    if value.parse::<i32>().is_ok() {
+                        ret += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if ret == 0 {
+        let lines = cfs::read_lines(PROC_STAT)?;
+        for line in lines {
+            if line.len() >= 4 &&
+                line.starts_with("cpu") &&
+                line.chars().nth(3).map_or(false, |c| { c.is_ascii_digit() }) {
+                ret += 1;
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
+pub fn physical_counts() -> Result<u32, Box<dyn Error>> {
+    // physical cores
+    // https://github.com/giampaolo/psutil/blob/8415355c8badc9c94418b19bdf26e622f06f0cce/psutil/_pslinux.py#L615-L628
+    let mut thread_siblings_lists = HashMap::new();
+
+    // These 2 files are the same but */core_cpus_list is newer while */thread_siblings_list is deprecated and may disappear in the future.
+    // https://www.kernel.org/doc/Documentation/admin-guide/cputopology.rst
+    // https://github.com/giampaolo/psutil/pull/1727#issuecomment-707624964
+    // https://lkml.org/lkml/2019/2/26/41
+    for glob_pattern in vec![
+        "devices/system/cpu/cpu[0-9]*/topology/core_cpus_list",
+        "devices/system/cpu/cpu[0-9]*/topology/thread_siblings_list",
+    ] {
+        let full_pattern = format!("{}/{}", SYS, glob_pattern);
+        if let Ok(files) = glob::glob(&full_pattern) {
+            for file_result in files {
+                if let Ok(file) = file_result {
+                    if let Ok(lines) = cfs::read_lines(file.as_path()) {
+                        if lines.len() != 1 {
+                            continue;
+                        }
+                        thread_siblings_lists.insert(lines[0].clone(), true);
+                    }
+                }
+            }
+
+            if thread_siblings_lists.len() != 0 {
+                return Ok(thread_siblings_lists.len() as u32);
+            }
+        }
+    }
+
+    // https://github.com/giampaolo/psutil/blob/122174a10b75c9beebe15f6c07dcf3afbe3b120d/psutil/_pslinux.py#L631-L652
+    let lines = cfs::read_lines(PROC_CPUINFO)?;
+    let mut mapping = HashMap::new();
+    let mut current_info = HashMap::new();
+
+    for line in lines {
+        let line = line.trim().to_lowercase();
+        if line.len() == 0 {
+            // new section
+            if let (Some(&id), Some(&cores)) =
+                (current_info.get("phusical id"), current_info.get("cpu cores")) {
+                mapping.insert(id, cores);
+            }
+            continue;
+        }
+
+        let fields = line.split(":").map(String::from).collect::<Vec<String>>();
+        if fields.len() < 2 {
+            continue;
+        }
+
+        let field = fields[0].trim().to_string();
+        if field == "physical id" || field == "cpu cores" {
+            if let Ok(v) = fields[1].trim().parse::<i32>() {
+                current_info.insert(field, v);
+            }
+        }
+    }
+
+    Ok(mapping.values().map(|&x| { x as u32 }).sum())
+}
+
 fn parse_stat_line(line: &str) -> Result<TimesStat, Box<dyn Error>> {
     let fields: Vec<String> = line.split_whitespace().map(String::from).collect();
     if fields.len() < 8 {
@@ -240,13 +337,13 @@ fn parse_stat_line(line: &str) -> Result<TimesStat, Box<dyn Error>> {
     let soft_irq: f64 = fields[7].parse::<f64>()? / CLOCKS_PER_SEC;
 
     // Linux >= 2.6.11
-    let steal = if fields.len() > 8 { fields[8].parse::<f64>()? as f64 / CLOCKS_PER_SEC } else { 0.0 };
+    let steal = if fields.len() > 8 { fields[8].parse::<f64>()? / CLOCKS_PER_SEC } else { 0.0 };
 
     // Linux >= 2.6.24
-    let guest = if fields.len() > 9 { fields[9].parse::<f64>()? as f64 / CLOCKS_PER_SEC } else { 0.0 };
+    let guest = if fields.len() > 9 { fields[9].parse::<f64>()? / CLOCKS_PER_SEC } else { 0.0 };
 
     // Linux >= 3.2.0
-    let guest_nice = if fields.len() > 10 { fields[10].parse::<f64>()? as f64 / CLOCKS_PER_SEC } else { 0.0 };
+    let guest_nice = if fields.len() > 10 { fields[10].parse::<f64>()? / CLOCKS_PER_SEC } else { 0.0 };
 
 
     Ok(TimesStat {
