@@ -5,11 +5,10 @@ use crate::cpu::linux::*;
 #[cfg(target_os = "windows")]
 use crate::cpu::windows::*;
 
-#[cfg(target_os = "windows")]
-mod windows;
-
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "windows")]
+mod windows;
 
 
 #[derive(Default, Debug)]
