@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 glob = "0.3.1"
+libc = "0.2.155"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52.0", features = [
+windows-sys = { version = "0.59.0", features = [
     "Win32_Foundation",
     "Wdk_System_SystemInformation",
     "Win32_System_SystemInformation",
@@ -23,3 +24,4 @@ windows = { version = "0.58.0", features = [
     "Win32_Security",
     "Win32_System_Variant",
 ] }
+

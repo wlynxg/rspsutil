@@ -1,3 +1,11 @@
+use std::error::Error;
+
+#[cfg(target_os = "linux")]
+use crate::mem::linux::*;
+
+#[cfg(target_os = "linux")]
+mod linux;
+
 #[derive(Default, Debug)]
 pub struct VirtualMemoryStat {
     // Total amount of RAM on this system
@@ -90,4 +98,8 @@ pub struct SwapDevice {
     name: String,
     used_bytes: u64,
     free_bytes: u64,
+}
+
+pub fn virtual_memory() -> Result<VirtualMemoryStat, Box<dyn Error>> {
+    get_virtual_memory()
 }
