@@ -1,11 +1,15 @@
 use std::cmp::min;
+use std::collections::HashMap;
 use std::error::Error;
+use std::io;
+use std::mem::MaybeUninit;
 
 use crate::common::fs as cfs;
-use crate::mem::VirtualMemoryStat;
+use crate::mem::{SwapMemoryStat, VirtualMemoryStat};
 
 const PROC_MEMINFO: &str = "/proc/meminfo";
 const PROC_ZONEINFO: &str = "/proc/zoneinfo";
+const PROC_VMSTAT: &str = "/proc/vmstat";
 
 
 #[derive(Default, Debug)]
@@ -95,6 +99,41 @@ pub fn get_virtual_memory() -> Result<VirtualMemoryStat, Box<dyn Error>> {
     Ok(ret)
 }
 
+pub fn get_swap_memory() -> Result<SwapMemoryStat, Box<dyn Error>> {
+    let info = sys_info()?;
+    let mut ret = SwapMemoryStat {
+        total: info.totalswap * info.mem_unit as u64,
+        free: info.freeswap * info.mem_unit as u64,
+        ..Default::default()
+    };
+    ret.used = ret.total - ret.free;
+    
+    // check Infinity
+    if ret.total != 0 {
+        ret.used_percent = ret.used as f64 / ret.total as f64 * 100.0;
+    } else {
+        ret.used_percent = 0.0;
+    }
+
+
+    let lines = cfs::read_lines(PROC_VMSTAT)?;
+    let kv = lines.iter().filter_map(|line| {
+        let mut parts = line.split_whitespace();
+        let key = parts.next()?;
+        let value = parts.next()?.parse::<u64>().ok()?;
+        Some((key, value))
+    }).collect::<HashMap<_, _>>();
+    let get_value = |key: &str| kv.get(key).copied().unwrap_or(0) << 12;
+
+    ret.sin = get_value("pswpin");
+    ret.sout = get_value("pswpout");
+    ret.pg_in = get_value("pgpgin");
+    ret.pg_out = get_value("pgpgout");
+    ret.pg_fault = get_value("pgpgfault");
+    ret.pg_maj_fault = get_value("pgmajfault");
+    Ok(ret)
+}
+
 fn calculate_avail_vmem(ret: &VirtualMemoryStat, ret_ex: &ExVirtualMemory) -> u64 {
     if let Ok(lines) = cfs::read_lines(PROC_ZONEINFO) {
         let mut watermark_low = 0;
@@ -119,6 +158,18 @@ fn calculate_avail_vmem(ret: &VirtualMemoryStat, ret_ex: &ExVirtualMemory) -> u6
     ret.free + ret.cached
 }
 
-pub fn page_size() -> usize {
+fn page_size() -> usize {
     unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
+}
+
+fn sys_info() -> Result<libc::sysinfo, Box<dyn Error>> {
+    let mut info = MaybeUninit::uninit();
+    let ret = unsafe { libc::sysinfo(info.as_mut_ptr()) };
+
+    let info = unsafe { info.assume_init() };
+    if ret == 0 {
+        Ok(info)
+    } else {
+        Err(io::Error::last_os_error().into())
+    }
 }

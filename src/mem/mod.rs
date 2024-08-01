@@ -103,3 +103,7 @@ pub struct SwapDevice {
 pub fn virtual_memory() -> Result<VirtualMemoryStat, Box<dyn Error>> {
     get_virtual_memory()
 }
+
+pub fn swap_memory() -> Result<SwapMemoryStat, Box<dyn Error>> {
+    get_swap_memory()
+}
