@@ -5,11 +5,12 @@ use std::io;
 use std::mem::MaybeUninit;
 
 use crate::common::fs as cfs;
-use crate::mem::{SwapMemoryStat, VirtualMemoryStat};
+use crate::mem::{SwapDevice, SwapMemoryStat, VirtualMemoryStat};
 
 const PROC_MEMINFO: &str = "/proc/meminfo";
 const PROC_ZONEINFO: &str = "/proc/zoneinfo";
 const PROC_VMSTAT: &str = "/proc/vmstat";
+const PROC_SWAPS: &str = "/proc/swaps";
 
 
 #[derive(Default, Debug)]
@@ -107,7 +108,7 @@ pub fn get_swap_memory() -> Result<SwapMemoryStat, Box<dyn Error>> {
         ..Default::default()
     };
     ret.used = ret.total - ret.free;
-    
+
     // check Infinity
     if ret.total != 0 {
         ret.used_percent = ret.used as f64 / ret.total as f64 * 100.0;
@@ -131,6 +132,52 @@ pub fn get_swap_memory() -> Result<SwapMemoryStat, Box<dyn Error>> {
     ret.pg_out = get_value("pgpgout");
     ret.pg_fault = get_value("pgpgfault");
     ret.pg_maj_fault = get_value("pgmajfault");
+    Ok(ret)
+}
+
+pub fn get_swap_devices() -> Result<Vec<SwapDevice>, Box<dyn Error>> {
+    let lines = cfs::read_lines(PROC_SWAPS)?;
+
+    if lines.len() < 2 {
+        return Ok(vec![]);
+    }
+
+    let headers = lines[0].split_ascii_whitespace().
+        into_iter().map(String::from).collect::<Vec<String>>();
+
+    if headers.len() < 3 {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("couldn't parse {PROC_SWAPS}: too few fields in header"))));
+    }
+
+    if headers[0] != "Filename" || headers[2] != "Size" || headers[3] != "Used" {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("couldn't parse {PROC_SWAPS}: headers unexpected fields"))));
+    }
+
+    let mut ret = vec![];
+    for line in lines[1..].iter() {
+        let fields = line.split_ascii_whitespace().
+            into_iter().map(String::from).collect::<Vec<String>>();
+        if fields.len() < 3 {
+            return Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("couldn't parse {PROC_SWAPS}: too few fields in header"))));
+        }
+
+
+        let total_kb = fields[2].parse::<u64>()?;
+        let used_kb = fields[3].parse::<u64>()?;
+
+        ret.push(SwapDevice {
+            name: fields[0].clone(),
+            used_bytes: used_kb << 10,
+            free_bytes: (total_kb - used_kb) << 10,
+        })
+    }
+
     Ok(ret)
 }
 

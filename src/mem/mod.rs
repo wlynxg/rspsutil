@@ -107,3 +107,7 @@ pub fn virtual_memory() -> Result<VirtualMemoryStat, Box<dyn Error>> {
 pub fn swap_memory() -> Result<SwapMemoryStat, Box<dyn Error>> {
     get_swap_memory()
 }
+
+pub fn swap_devices() -> Result<Vec<SwapDevice>, Box<dyn Error>> {
+    get_swap_devices()
+}
