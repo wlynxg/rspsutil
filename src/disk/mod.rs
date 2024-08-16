@@ -1,4 +1,13 @@
-struct UsageStat {
+use std::error::Error;
+
+#[cfg(target_os = "linux")]
+use linux::*;
+
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[derive(Default, Debug)]
+pub struct UsageStat {
     path: String,
     fs_type: String,
     total: u64,
@@ -11,14 +20,16 @@ struct UsageStat {
     inodes_used_percent: f64,
 }
 
-struct PartitionStat {
+#[derive(Default, Debug)]
+pub struct PartitionStat {
     device: String,
     mountpoint: String,
     fstype: String,
     opts: Vec<String>,
 }
 
-struct IOCountersStat {
+#[derive(Default, Debug)]
+pub struct IOCountersStat {
     read_count: u64,
     merged_read_count: u64,
     write_count: u64,
@@ -33,4 +44,9 @@ struct IOCountersStat {
     name: String,
     serial_number: String,
     label: String,
+}
+
+
+pub fn usage(path: &str) -> Result<UsageStat, Box<dyn Error>> {
+    get_usage(path)
 }
